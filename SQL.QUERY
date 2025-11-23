@@ -1,0 +1,436 @@
+# SQL_COFFEE_SHOP_CASE_STUDY
+ Coffee Shop SQL Case Study Project - Real-World Business Scenarios
+=============================================================================
+Context:
+You're a Data Professional working for a coffee shop chain. Your job is to optimize operations, 
+analyze trends, and ensure data accuracy using SQL.
+
+   SQL Concept to Cover:
+-	Joins & Exploration
+-	Date/Time & Interval Arithmetic
+-	Aggregation, GROUP BY & HAVING
+-	Common Table Expressions (CTEs) & Subqueries
+-	Window Functions & Ranking
+-	Recursive CTEs
+-	Conditional Logic, Pivoting & Un pivoting
+-	View Creation & Safe Joins
+-	Optimization Techniques
+
+Below are the tables present in the Database **/
+-	SELECT * FROM ingredients;
+SELECT * FROM inventary;
+SELECT * FROM menu_items;
+SELECT * FROM orders;
+SELECT * FROM recipe;
+SELECT * FROM rota;
+SELECT * FROM shift;
+SELECT * FROM staff;
+
+                            -----------------------------------------
+                             1. Employee Workload & Shift Management 
+                            -----------------------------------------
+                            
+--1) calculate total hours worked by each employee per week.
+
+SELECT STAFF_ID, NAME_,week_start ,SUM(SHIFT_HOURS)  AS HOURS_WORKED FROM
+(
+SELECT S2.STAFF_ID,S2.FIRST_NAME || ' ' || S2.LAST_NAME AS NAME_,DATE_TRUNC('week',r.date) as week_start,S1.DAY_OF_WEEK,
+(S1.END_TIME - S1.START_TIME)
+ AS SHIFT_HOURS,S2.SAL_PER_HOUR
+FROM SHIFT AS S1
+JOIN ROTA AS R
+ON S1.SHIFT_ID = R.SHIFT_ID
+JOIN STAFF AS S2
+ON S2.STAFF_ID = R.STAFF_ID
+) AS A
+GROUP BY STAFF_ID, NAME_,week_start
+ORDER BY STAFF_ID ASC
+--------------------------------------
+--2) iDENTIFY EMPLOYEES WORKING OVERTIME (MORE THAN 25 HOURS)
+
+SELECT STAFF_ID, NAME_,week_start ,SUM(SHIFT_HOURS)  AS HOURS_WORKED FROM
+(
+SELECT S2.STAFF_ID,S2.FIRST_NAME || ' ' || S2.LAST_NAME AS NAME_,
+DATE_TRUNC('week',r.date) as week_start,S1.DAY_OF_WEEK,
+(S1.END_TIME - S1.START_TIME)
+ AS SHIFT_HOURS,S2.SAL_PER_HOUR
+FROM SHIFT AS S1
+JOIN ROTA AS R
+ON S1.SHIFT_ID = R.SHIFT_ID
+JOIN STAFF AS S2
+ON S2.STAFF_ID = R.STAFF_ID
+) AS A
+GROUP BY STAFF_ID, NAME_,week_start
+HAVING SUM(SHIFT_HOURS) > '25:00:00'
+ORDER BY STAFF_ID ASC
+-----------------------------------
+--3) RANK employees based on total_hous worked
+
+WITH C1 AS 
+(
+SELECT STAFF_ID, NAME_,week_start ,SUM(SHIFT_HOURS)  AS HOURS_WORKED FROM
+(
+SELECT S2.STAFF_ID,S2.FIRST_NAME || ' ' || S2.LAST_NAME AS NAME_,DATE_TRUNC('week',r.date) as week_start,S1.DAY_OF_WEEK,
+(S1.END_TIME - S1.START_TIME)
+ AS SHIFT_HOURS,S2.SAL_PER_HOUR
+FROM SHIFT AS S1
+JOIN ROTA AS R
+ON S1.SHIFT_ID = R.SHIFT_ID
+JOIN STAFF AS S2
+ON S2.STAFF_ID = R.STAFF_ID
+) AS A
+GROUP BY STAFF_ID, NAME_,week_start
+ORDER BY STAFF_ID ASC
+)
+SELECT * ,DENSE_RANK() OVER ( ORDER BY HOURS_WORKED DESC) AS RNK
+FROM C1
+-------------------------------------------------------------------
+--4) SUGGEST AN OPTIMISED SHIFT ALLOCATION TO BALANCE THE WORKLOAD.
+
+WITH Q1 AS 
+(
+SELECT STAFF_ID, NAME_,week_start ,SUM(SHIFT_HOURS)  AS HOURS_WORKED FROM
+(
+SELECT S2.STAFF_ID,S2.FIRST_NAME || ' ' || S2.LAST_NAME AS NAME_,DATE_TRUNC('week',r.date) as week_start,S1.DAY_OF_WEEK,
+(S1.END_TIME - S1.START_TIME)
+ AS SHIFT_HOURS,S2.SAL_PER_HOUR
+FROM SHIFT AS S1
+JOIN ROTA AS R
+ON S1.SHIFT_ID = R.SHIFT_ID
+JOIN STAFF AS S2
+ON S2.STAFF_ID = R.STAFF_ID
+) AS A
+GROUP BY STAFF_ID, NAME_,week_start
+ORDER BY STAFF_ID ASC
+),
+OVERWORKED AS 
+(
+SELECT STAFF_ID, NAME_,HOURS_WORKED FROM Q1
+WHERE HOURS_WORKED > '25:00:00'
+),
+UNDERWORKED AS
+(
+SELECT STAFF_ID, NAME_,HOURS_WORKED FROM Q1
+WHERE HOURS_WORKED < '25:00:00'
+)
+SELECT O.STAFF_ID AS OVERWORKED_ID, O.NAME_ AS OVERWORKED_NAME,
+       U.STAFF_ID AS UNDERWORKED_ID, U.NAME_ AS UNDERWORKED_NAME,
+	   'CONSIDER SHIFT RE-ALLOCATION' AS SUGGESTION
+FROM OVERWORKED AS O
+CROSS JOIN UNDERWORKED AS U
+
+
+                            --------------------------------------------------------
+                              2. Preventing Shift Overlaps & Scheduling Optimization 
+                            --------------------------------------------------------
+                            
+--5)DETECT EMPLOYEES WITH OVERLAPPING SHIFTS (SAMEDATE,OVERLAPPING TIMES)
+
+SELECT R.SHIFT_ID, S1.START_TIME,S1.END_TIME,R.DATE,
+STRING_AGG(S2.FIRST_NAME || ' ' || S2.LAST_NAME, ' | ') AS NAME_,
+COUNT(*) AS EMPLOYEE_COUNT
+FROM SHIFT AS S1
+JOIN ROTA AS R
+ON S1.SHIFT_ID = R.SHIFT_ID
+JOIN STAFF AS S2
+ON S2.STAFF_ID = R.STAFF_ID
+GROUP BY R.SHIFT_ID,R.DATE, S1.START_TIME,S1.END_TIME
+HAVING COUNT(*) >=2
+ORDER BY DATE, SHIFT_ID
+----------------------------------------------------
+--6) IDENTIFY SHIFTS WITH INSUFFICIENT STAFFS.
+-- CODN: IF ONE OR LESS THAN ONE EMPLOYEE ARE ASSIGNED TO A SHIFT IS A SHIFT WITH INSUFFICIENT
+
+SELECT R.SHIFT_ID, S1.START_TIME,S1.END_TIME,R.DATE,
+STRING_AGG(S2.FIRST_NAME || ' ' || S2.LAST_NAME, ' | ') AS NAME_,
+COUNT(*) AS EMPLOYEE_COUNT
+FROM SHIFT AS S1
+JOIN ROTA AS R
+ON S1.SHIFT_ID = R.SHIFT_ID
+JOIN STAFF AS S2
+ON S2.STAFF_ID = R.STAFF_ID
+GROUP BY R.SHIFT_ID,R.DATE, S1.START_TIME,S1.END_TIME
+HAVING COUNT(*) <=1
+ORDER BY DATE, SHIFT_ID
+-----------------------------------------------------
+
+                                                     -------------------------------
+                                                       3. Sales & Revenue Analysis 
+                                                     -------------------------------
+                                                     
+--7)IDENTIFY THE BUSSIEST HOURS BASED ON TOTAL_SALES 
+
+SELECT EXTRACT(HOUR FROM ONLY_TIME::TIME) AS HOURS, 
+SUM(QUANTITY * ITEM_PRICE) AS SALES
+FROM
+(
+SELECT split_part(O.CREATED_AT, ' ', 2) AS only_time
+,O.QUANTITY,M.ITEM_PRICE FROM ORDERS
+AS O JOIN menu_items AS M
+ON O.ITEM_ID = M.ITEM_ID
+) AS A
+GROUP BY EXTRACT(HOUR FROM ONLY_TIME::TIME)
+ORDER BY SALES DESC
+------------------------------------------
+--8) CEATE A VIEW SUMMARIZING | TOTAL REVENUE PER MONTH | ORDERS | AVERAGE ORDER VALUE ?
+
+SELECT EXTRACT(MONTH FROM ONLY_DATE:: TIMESTAMP) AS MONTH_,
+SUM(QUANTITY * ITEM_PRICE) AS TOTAL_REVENUE, SUM(QUANTITY) AS ORDERS_MONTH, 
+(SUM(QUANTITY * ITEM_PRICE) / COUNT(DISTINCT ORDER_ID))::NUMERIC (10,1) AS AVERAGE_ORDER_VALUE 
+FROM
+(
+SELECT SPLIT_PART(O.CREATED_AT, ' ', 1) AS ONLY_DATE,O.QUANTITY,M.ITEM_PRICE,O.ORDER_ID
+FROM ORDERS AS O
+JOIN MENU_ITEMS AS M
+ON O.ITEM_ID = M.ITEM_ID
+) AS A
+GROUP BY EXTRACT(MONTH FROM ONLY_DATE:: TIMESTAMP)
+
+------------------
+-- CREATE VIEW --
+-----------------
+
+CREATE VIEW MONTHLY_VIEW AS 
+SELECT EXTRACT(MONTH FROM ONLY_DATE:: TIMESTAMP) AS MONTH_,
+SUM(QUANTITY * ITEM_PRICE) AS TOTAL_REVENUE, SUM(QUANTITY) AS ORDERS_MONTH, 
+(SUM(QUANTITY * ITEM_PRICE) / COUNT(DISTINCT ORDER_ID))::NUMERIC (10,1) AS AVERAGE_ORDER_VALUE 
+FROM
+(
+SELECT SPLIT_PART(O.CREATED_AT, ' ', 1) AS ONLY_DATE,O.QUANTITY,M.ITEM_PRICE,O.ORDER_ID
+FROM ORDERS AS O
+JOIN MENU_ITEMS AS M
+ON O.ITEM_ID = M.ITEM_ID
+) AS A
+GROUP BY EXTRACT(MONTH FROM ONLY_DATE:: TIMESTAMP)
+---------------------------
+SELECT * FROM  MONTHLY_VIEW
+----------------------------------------------------------------------------------------------
+--9) DETERMINE THE MOST PROFITABLE CATEGORY LIKE HOT RINKS, COLD DRINKS, PASTRIES ETC.
+
+SELECT M.ITEM_CAT,
+SUM(CASE WHEN IN_OR_OUT = 'out' THEN 1 ELSE 0 end) as sold_out,
+SUM(CASE WHEN IN_OR_OUT = 'in' THEN 1 ELSE 0 end) as sold_in,
+sum(case when in_or_out is null THEN 1 ELSE 0 end) as nor_in_out
+, SUM(QUANTITY * ITEM_PRICE) AS TOTAL_REVENUE,
+sum(o.quantity) as total_qty_sold
+FROM 
+ORDERS AS O
+JOIN MENU_ITEMS AS M
+ON O.ITEM_ID = M.ITEM_ID
+GROUP BY M.ITEM_CAT
+ORDER BY total_revenue desc
+limit 1
+----------------------------
+
+                                                     ------------------------------------------
+                                                       4. Customer Order Patterns & Retention 
+                                                     ------------------------------------------
+--10) FIND CUSTOMERS WHO ORDER AT LEAST 14 TIMES A WEEK
+
+SELECT CUST_NAME, EXTRACT(WEEK FROM ONLY_DATE::DATE) AS YEAR_WEEK,
+EXTRACT(MONTH FROM ONLY_DATE::DATE) AS MONTH_,
+FLOOR((EXTRACT(DAY FROM ONLY_DATE::DATE)-1)/7) +1 AS MONTH_WEEK,
+COUNT(*) AS T_COUNT
+FROM
+(
+SELECT SPLIT_PART(CREATED_AT, ' ', 1) AS ONLY_DATE,CUST_NAME,ORDER_ID FROM ORDERS
+) AS A
+GROUP BY CUST_NAME,EXTRACT(WEEK FROM ONLY_DATE::DATE),
+EXTRACT(MONTH FROM ONLY_DATE::DATE),
+FLOOR((EXTRACT(DAY FROM ONLY_DATE::DATE)-1)/7) +1
+HAVING COUNT(*) > 14
+ORDER BY T_COUNT DESC
+--------------------------------------------------
+
+--11) IDENTIFY CUSTOMER WHO HAVENT PLACED AN ORDER IN THE LAST 30 DAYS
+
+SELECT DISTINCT CUST_NAME FROM ORDERS
+WHERE CUST_NAME NOT IN (
+SELECT distinct CUST_NAME FROM ORDERS
+WHERE CREATED_AT::TIMESTAMP > DATE '2024/03/15' - INTERVAL '30 days' 
+)
+--------------------------------------------------------------------
+--12) DETERMINE PREFERRED OREDR TIMES LIKE MORNING | AFTERNON | EVENING .
+
+   --  |UN-PIVOTED VERSION | ---
+
+SELECT TIME_, T_ORDER                         
+FROM (
+SELECT 
+CASE 
+   WHEN EXTRACT(HOUR FROM ONLY_TIME::time) >= 7 
+   AND EXTRACT(HOUR FROM ONLY_TIME::time) < 12 THEN 'Morning'
+   WHEN EXTRACT(HOUR FROM ONLY_TIME::time) >= 12 
+   AND EXTRACT(HOUR FROM ONLY_TIME::time) < 17 THEN 'Afternoon'
+ELSE 'Evening' END AS TIME_,
+COUNT(*) AS T_ORDER FROM
+(
+SELECT SPLIT_PART(CREATED_AT, ' ', 2) AS ONLY_TIME,ORDER_ID FROM ORDERS
+) AS A
+GROUP BY CASE 
+   WHEN EXTRACT(HOUR FROM ONLY_TIME::time) >= 7 
+   AND EXTRACT(HOUR FROM ONLY_TIME::time) < 12 THEN 'Morning'
+   WHEN EXTRACT(HOUR FROM ONLY_TIME::time) >= 12 
+   AND EXTRACT(HOUR FROM ONLY_TIME::time) < 17 THEN 'Afternoon'
+ELSE 'Evening' END
+
+UNION ALL
+
+SELECT 'TOTAL' AS TIME_, COUNT(*) AS T_ORDER FROM ORDERS) AS COMINED_QUERY
+ORDER BY TIME_ = 'Morning' desc, time_ = 'Afternoon' desc
+--------------------------------------------------------
+-- | PIVOTED VERSION | --
+
+SELECT 
+  COUNT( CASE WHEN EXTRACT(HOUR FROM ONLY_TIME::time) >= 7 
+   AND EXTRACT(HOUR FROM ONLY_TIME::time) < 12 THEN 1 end) AS Morning,
+   COUNT( CASE WHEN EXTRACT(HOUR FROM ONLY_TIME::time) >= 12 
+   AND EXTRACT(HOUR FROM ONLY_TIME::time) < 16 THEN 1 end) AS Afternoon,
+   COUNT( CASE WHEN EXTRACT(HOUR FROM ONLY_TIME::time) >= 16 
+   AND EXTRACT(HOUR FROM ONLY_TIME::time) <=  17 THEN 1 end) AS Evening,
+   COUNT(EXTRACT(HOUR FROM ONLY_TIME::TIME)) AS TOTAL 
+   FROM
+   (
+   SELECT SPLIT_PART(CREATED_AT, ' ', 2) AS ONLY_TIME,ORDER_ID FROM ORDERS
+) AS A
+--------------------------------------------------------------------------
+
+                                                     ------------------------------------------
+                                                       5. Pricing & Product Demand Analysis
+                                                     ------------------------------------------
+--13) IDENTIFY TOP 5 SELLING ITEMS AND THEIR REVENUE CONTRIBUTION
+
+SELECT M.ITEM_ID,ITEM_NAME,SUM(M.ITEM_PRICE * O.QUANTITY) AS REVENUE,
+SUM(QUANTITY) AS TOTAL_QTY
+FROM 
+ORDERS AS O
+JOIN MENU_ITEMS AS M
+ON O.ITEM_ID = M.ITEM_ID
+GROUP BY M.ITEM_ID,ITEM_NAME
+ORDER BY REVENUE DESC, TOTAL_QTY DESC
+LIMIT 5
+--------------------------------------
+--14) FIND LEAST - SELLING ITEMS AND SUGGEST POTENTIAL REMOVAL OR DISCOUNTS
+
+SELECT M.ITEM_ID,ITEM_NAME,SUM(M.ITEM_PRICE * O.QUANTITY) AS REVENUE,
+SUM(QUANTITY) AS TOTAL_QTY, CASE WHEN SUM(QUANTITY) BETWEEN 10 AND 15 THEN 'Discount'
+when sum(quantity) > 15 then 'Keep' END as Status_Reccomendation
+FROM 
+ORDERS AS O
+JOIN MENU_ITEMS AS M
+ON O.ITEM_ID = M.ITEM_ID
+GROUP BY M.ITEM_ID,ITEM_NAME
+ORDER BY  TOTAL_QTY ASC
+-----------------------------------------------------------------
+--15) IDENTIFY BEST-SELLING ITEMS SO FAR AND RECOMMEND FOCUS AREAS FOR MARKETING CAMPAIGNS
+
+SELECT M.ITEM_NAME,M.ITEM_CAT,
+SUM(O.QUANTITY) AS TOTAL_QTY,
+CASE WHEN SUM(O.QUANTITY) > 30 THEN 'Top-Seller ' else 'Low-Seller' end as marketing,
+CASE WHEN SUM(O.QUANTITY) > 30 THEN 'Focus-Marketing' 
+WHEN SUM(O.QUANTITY) BETWEEN 20 AND 30 THEN 'Confirm-Marketing'
+else 'Little or NO-Marketing' end as Strategy
+FROM 
+ORDERS AS O
+JOIN MENU_ITEMS AS M
+ON O.ITEM_ID = M.ITEM_ID
+GROUP BY M.ITEM_NAME,M.ITEM_CAT
+ORDER BY  TOTAL_QTY DESC                                                    
+---------------------------------------------------------------
+                                                     ------------------------------------------
+                                                           6.Forecasting Ingredient Stock 
+                                                     ------------------------------------------
+--16) LIST ALL INGREDIENTS THAT ARE RUNNING LOW IN INVENTORY (QUANTITY LESS THAN 5)
+
+SELECT I1.ING_ID,I2.ING_NAME,I2.ING_WEIGHT,I2.ING_MEAS,
+SUM(QUANTITY) AS T_QTY
+FROM INVENTARY AS I1
+JOIN INGREDIENTS AS I2
+ON I2.ING_ID = I1.ING_ID
+GROUP BY I1.ING_ID,I2.ING_NAME,I2.ING_WEIGHT,I2.ING_MEAS
+HAVING SUM(QUANTITY) < 5
+ORDER BY T_QTY ASC
+--------------------------------------------------------
+--17) ESTIMATE THE NUMBER OF SHIFTS A STAFF MEMBER HAS WORKED SINCE THE BEGINNING OF THE YEAR
+
+WITH STAFF AS 
+(
+SELECT STAFF_ID,DATE,ROW_NUMBER() OVER (PARTITION BY STAFF_ID ORDER BY DATE) AS RN
+FROM ROTA
+WHERE DATE BETWEEN '2024-01-01' AND '2024-03-30') 
+SELECT STAFF_ID, MAX(RN) AS SHIFTS_ FROM STAFF
+GROUP BY STAFF_ID
+                               ---- OR ------
+SELECT STAFF_ID, COUNT(SHIFT_ID) AS N_SHIFTS FROM ROTA
+GROUP BY STAFF_ID
+ORDER BY STAFF_ID
+-------------------------------------------------------
+--18) IDENTIFY FREQUENTLY ORDERED MENU ITEM CHAINS LIKE COFFE --> MUFFIN --> COOKIES.
+
+SELECT M1.ITEM_NAME || ' --> ' || M2.ITEM_NAME AS ITEM_CHAIN, 
+COUNT(*) AS FREQUENCY , 2 AS CHAIN_LENGTH 
+FROM ORDERS AS O1
+JOIN ORDERS AS O2
+ON O1.ORDER_ID = O2.ORDER_ID AND O1.ITEM_ID < O2.ITEM_ID
+JOIN MENU_ITEMS AS M1
+ON O1.ITEM_ID = M1.ITEM_ID
+JOIN MENU_ITEMS AS M2
+ON O2.ITEM_ID = M2.ITEM_ID
+GROUP BY ITEM_CHAIN
+----------------------------------------------------------                                                    
+                                                     -----------------------------------------------------------------------------------------
+                                                     7. Customer Segmentation & Loyalty Analysis  | Employee Performance & Sales Contribution
+                                                     ------------------------------------------------------------------------------------------
+--19)FIND THE CUSTOMERS WITH 10+ ORDERS SPREAD OVER 5 OR MORE DAYS FOR LOYALTY REWARDS.
+
+SELECT  CUST_NAME, COUNT(DISTINCT DATE(CREATED_AT)) AS active_days,
+COUNT(ORDER_ID)  AS ORDER_CNT FROM 
+ORDERS
+GROUP BY CUST_NAME
+HAVING COUNT(ORDER_ID) > 10
+AND  COUNT(DISTINCT DATE(CREATED_AT)) >= 5
+-------------------------------------------
+--20) WHICH MENU ITEMS ARE MOST POPULAR BY TIME OF THE DAY (MORNING, AFTERNOON, EVENING) ?
+
+SELECT TIME_,ITEM_NAME,ORD_QNT FROM
+(
+WITH MAIN AS 
+(
+SELECT 
+CASE 
+   WHEN CREATED_AT::TIME >= '7:00:00'
+   AND CREATED_AT::TIME < '12:00:00' THEN 'Morning'
+   WHEN CREATED_AT::TIME >= '12:00:00' 
+   AND CREATED_AT::TIME < '17:00:00' THEN 'Afternoon'
+ELSE 'Evening' END AS TIME_,ITEM_NAME,
+COUNT(*) AS ORD_QNT
+FROM ORDERS AS O
+JOIN MENU_ITEMS AS M
+ON O.ITEM_ID = M.ITEM_ID
+GROUP BY CASE 
+  WHEN CREATED_AT::TIME >= '7:00:00'
+   AND CREATED_AT::TIME < '12:00:00' THEN 'Morning'
+   WHEN CREATED_AT::TIME >= '12:00:00' 
+   AND CREATED_AT::TIME < '17:00:00' THEN 'Afternoon'
+ELSE 'Evening' END ,ITEM_NAME
+ORDER BY ITEM_NAME DESC
+)
+SELECT *, ROW_NUMBER() OVER (PARTITION BY TIME_ ORDER BY ORD_QNT DESC) AS HIGHEST FROM MAIN
+) AS A
+ WHERE HIGHEST = 1
+--------------------------------------------------------------------------------------------
+--21) FIND THE EMPLOYEES WORKING DURING THE HIGHEST-REVENUE SHIFTS ?
+
+SELECT R.SHIFT_ID,
+R.STAFF_ID, SUM(O.QUANTITY * M.ITEM_PRICE) AS REVENUE
+FROM SHIFT AS S1
+JOIN ROTA AS R
+ON R.SHIFT_ID = S1.SHIFT_ID
+JOIN ORDERS AS O
+ON R.DATE = O.CREATED_AT::DATE
+JOIN MENU_ITEMS AS M
+ON M.ITEM_ID = O.ITEM_ID
+GROUP BY  R.SHIFT_ID,
+R.STAFF_ID
+ORDER BY REVENUE DESC
+---------------------------------------------------------------------------------------- END ------------------------------------------------------------------------------------------------------------------                                                     
